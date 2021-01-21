@@ -23,9 +23,9 @@ public:
 	//IFD0
 	TIFF_HEADER tiff_header;
 	CR2_HEADER cr2_header;
-	uint16_t exif_subdir_offset, makernote_offset = 0;
+	uint16_t exif_subdir_offset, makernote_offset;
 	uint16_t sensor_width, sensor_height, sensor_left_border, sensor_top_border, sensor_right_border, sensor_bottom_border = 0;
-	uint16_t color_balances[4] = { 0,0,0,0 };
+	uint16_t color_balances[4];
 
 	//IFD3
 	int width, height = 0;

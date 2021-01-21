@@ -41,7 +41,7 @@ vector<uint16_t> decodeSlice(vector<int> slice_diff,RAW_CR2* raw) {
     uint16_t Black_level = (uint16_t)Black_level_long;
     cout << "BLLONG = " << Black_level_long << " BLUINT = " << Black_level;
 
-    uint16_t newval;
+    uint16_t newval, clamped_nv;
     //Measure Black value
     for (int i = raw->sensor_width * 18; i < slice_diff.size(); i++) {
         if (i % raw->sensor_width < 72) {
@@ -50,16 +50,17 @@ vector<uint16_t> decodeSlice(vector<int> slice_diff,RAW_CR2* raw) {
         else {
             //Actually append the data
             newval = last_values[i % 2] + slice_diff[i];
+            clamped_nv = newval - Black_level < 0 ? 0 : newval - Black_level;
         }
         int rightside = (i / (raw->sensor_width / 2));
         rightside = rightside % 2;
         int odd = i % 2;
 
         switch (rightside * 2 + odd) {
-            case 0: raw->r.push_back(newval); break;
-            case 1: break;//raw->g.push_back(newval); break;
-            case 2:raw->g.push_back(newval); break;
-            case 3:raw->b.push_back(newval); break;
+        case 0:raw->r.push_back(float(clamped_nv) * float(raw->color_balances[0])/1024.); break;
+            case 1:break;//raw->g.push_back(newval); break;
+            case 2:raw->g.push_back(clamped_nv *float(raw->color_balances[2])/1024.); break;//cout << raw->color_balances[2] << " "<< float(raw->color_balances[2]) / 1024. << endl; break;
+            case 3:raw->b.push_back(clamped_nv *float(raw->color_balances[3])/1024.); break;
             default: cout << "oh shit : " << rightside * 2 + odd << endl;
         }
 
@@ -83,8 +84,11 @@ int main()
 {
     string myPhotoPath = "V:\\Temp\\Photos Neige\\J0_J1\\_MG_9532.CR2";
 
+    cout << "Headers start" << endl;
     RAW_CR2* raw = new RAW_CR2(myPhotoPath);
     raw->fill_headers_and_diff_values();
+    cout << "Headers end" << endl;
+    
     vector<int> vec_diffvalues = raw->vec_diffvalues;
     raw->pprint();
 
@@ -96,10 +100,10 @@ int main()
 
     vector<uint16_t> s1_dec = decodeSlice(newVec,raw);
 
-    cout << "First few pixels values : " << endl;
+    /*cout << "First few pixels values : " << endl;
     for (int i = 0; i < 20; i++) {
         cout << vec_diffvalues[i] << endl;
-    }
+    }*/
 
     const auto width = raw->sensor_width/4;
     const auto height = raw->sensor_height/2;
@@ -127,7 +131,7 @@ int main()
             //int pixelvalue = (s1_dec[offset] + abs(min_pixels))*255/( abs(min_pixels) + abs(max_pixels) );
 
             // red and green fade from 0 to 255, blue is always 127
-            image[offset* bytesPerPixel] = ( raw->r[offset] + abs(min_pixels)) * 255 / (abs(min_pixels) + abs(max_pixels));        //Red
+            image[offset* bytesPerPixel]     = ( raw->r[offset] + abs(min_pixels)) * 255 / (abs(min_pixels) + abs(max_pixels));        //Red
             image[offset* bytesPerPixel + 1] = ( raw->g[offset] + abs(min_pixels)) * 255 / (abs(min_pixels) + abs(max_pixels));   //Green
             image[offset* bytesPerPixel + 2] = ( raw->b[offset] + abs(min_pixels)) * 255 / (abs(min_pixels) + abs(max_pixels));                //Blue
             

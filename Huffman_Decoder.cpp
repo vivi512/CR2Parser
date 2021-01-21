@@ -10,7 +10,7 @@ void huffCodess(uint8_t* huffData, uint16_t* table);
 
 Huffman_Decoder::Huffman_Decoder(uint8_t hlen[16], int hvalues[16])
 {
-    cout << "Creating tables" << endl;
+    //cout << "Creating tables" << endl;
     uint16_t hcodes[16];
     huffCodess(hlen, hcodes);
     
@@ -66,7 +66,7 @@ Huffman_Decoder::Huffman_Decoder(uint8_t hlen[16], int hvalues[16])
         }
     }
 
-    cout << "Done generating hmaps !" << endl;
+    //cout << "Done generating hmaps !" << endl;
 
 }
 

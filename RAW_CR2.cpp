@@ -46,8 +46,9 @@ void RAW_CR2::fill_headers_and_diff_values() {
         if (temp_tiff_tag.ID == EXIF)
         {
             this->exif_subdir_offset = temp_tiff_tag.value;
+            break;
         }
-        break;
+        
     }
 
     //Goto EXIF offset, find MAKERNOTE offset
@@ -59,8 +60,9 @@ void RAW_CR2::fill_headers_and_diff_values() {
         if (temp_tiff_tag.ID == MAKERNOTE)
         {
             this->makernote_offset = temp_tiff_tag.value;
+            break;
         }
-        break;
+        
     }
 
     //Goto MAKERNOTE, find camera sensor data
@@ -69,8 +71,27 @@ void RAW_CR2::fill_headers_and_diff_values() {
     for (int i = 0; i < num_IFD_entries; i++)
     {
         fread(&temp_tiff_tag, sizeof(temp_tiff_tag), 1, fp);
-        if (temp_tiff_tag.ID == SENSOR_INFO)
+        //cout << "ID : " << temp_tiff_tag.ID << endl;
+
+        if (temp_tiff_tag.ID == COLOR_BALANCE) {
+            long current_pos = ftell(fp);
+            fseek(fp, temp_tiff_tag.value, SEEK_SET);
+            uint16_t numEntries;
+            fread(&numEntries, sizeof(numEntries), 1, fp);
+            fseek(fp, temp_tiff_tag.value + 126, SEEK_SET); //126 is the default skip value, see dcraw extract from part 5.1 of lclevy's post
+            
+            uint16_t entryVal;
+            for (int j = 0; j < 4; j++)
+            {
+                 fread(&entryVal, sizeof(entryVal), 1, fp);
+                 this->color_balances[j] = entryVal;
+            }
+            fseek(fp, current_pos, SEEK_SET);
+        }
+
+        else if (temp_tiff_tag.ID == SENSOR_INFO)
         {
+            long current_pos = ftell(fp);
             fseek(fp, temp_tiff_tag.value, SEEK_SET);
             uint16_t numEntries;
             fread(&numEntries, sizeof(numEntries), 1, fp);
@@ -90,9 +111,7 @@ void RAW_CR2::fill_headers_and_diff_values() {
                     default:break;
                 }
             }
-        }
-        else if (temp_tiff_tag.ID == COLOR_BALANCE) {
-            getShortPointerDataTag(this->color_balances, temp_tiff_tag, fp); break;
+            fseek(fp, current_pos, SEEK_SET);
         }
     }
 
