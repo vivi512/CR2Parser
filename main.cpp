@@ -81,8 +81,9 @@ void myOutput(unsigned char byte)
 
 int main()
 {
-    //vector<uint16_t> vec_diffvalues;
-    RAW_CR2* raw = new RAW_CR2("V:\\Temp\\Photos Neige\\J0_J1\\_MG_9532.CR2");
+    string myPhotoPath = "V:\\Temp\\Photos Neige\\J0_J1\\_MG_9532.CR2";
+
+    RAW_CR2* raw = new RAW_CR2(myPhotoPath);
     raw->fill_headers_and_diff_values();
     vector<int> vec_diffvalues = raw->vec_diffvalues;
     raw->pprint();
