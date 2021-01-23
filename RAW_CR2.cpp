@@ -1,5 +1,7 @@
 #pragma once
 #include "RAW_CR2.h"
+#include <numeric>
+#include <algorithm>
 
 
 //Constructor : sets a file associated with the .CR2
@@ -20,6 +22,8 @@ void RAW_CR2::pprint()
 
 	cout << "Sensor data (Width/Height) : " << this->sensor_width << " / " << this-> sensor_height << endl;
 	cout << "Sensor crop (t/b/l/r) : " << this->sensor_top_border << " / " << this->sensor_bottom_border << " / " << this->sensor_left_border << " / " << this->sensor_right_border << endl;
+    cout << "Black Mask (t/l) : " << this->top_black_border << " / " << this->left_black_border << endl;
+
 }
 
 
@@ -107,6 +111,11 @@ void RAW_CR2::fill_headers_and_diff_values() {
                     case 5:this->sensor_top_border = entryVal; break;
                     case 6:this->sensor_right_border = entryVal; break;
                     case 7:this->sensor_bottom_border = entryVal; break;
+
+                    case 8:this->black_mask_left_border = entryVal; break;
+                    case 9:this->black_mask_top_border = entryVal; break;
+                    case 10:this->black_mask_right_border = entryVal; break;
+                    case 11:this->black_mask_bottom_border = entryVal; break;
                 
                     default:break;
                 }
@@ -114,6 +123,9 @@ void RAW_CR2::fill_headers_and_diff_values() {
             fseek(fp, current_pos, SEEK_SET);
         }
     }
+
+    this->left_black_border = (sensor_left_border - (sensor_width - sensor_right_border));     // = 71 on a 70D
+    this->top_black_border = (sensor_top_border - (sensor_height - sensor_bottom_border)) / 2; // = 19 on a 70D
 
     /*
         IFD 3
@@ -246,7 +258,8 @@ void RAW_CR2::fill_headers_and_diff_values() {
     uint16_t CodeBitBuffer;
     int last_values[3] = { 8192 ,8192 ,8192 };   //R G B
     int odd_char, odd_line, resultValue = 0;
-    vector<int> resultValues(numDiffValues);
+    //vector<int> resultValues(numDiffValues);
+    this->diff_values = vector<uint16_t>(numDiffValues);    //Allocate diff_values to the right size (numDiffValues)
 
     for (int i = 0; i < numDiffValues; i++)
     {
@@ -292,13 +305,168 @@ void RAW_CR2::fill_headers_and_diff_values() {
         }
 
         diffValue = getDiffValue(diffCode, codeValue);
-        resultValues[i] = diffValue;
+        this->diff_values[i] = diffValue;
     }
 
-    vec_diffvalues = resultValues;
+    //Allocate r,g,b
+    this->r = vector<float>(numDiffValues/4);
+    this->g1 = vector<float>(numDiffValues/4);
+    this->g2 = vector<float>(numDiffValues/4);
+    this->b = vector<float>(numDiffValues/4);
 
-    cout << "Done !" << endl << endl;
+    bayer_values = vector<uint16_t>(numDiffValues);
 
-    //Closing stuff
+    //Closing file
     fclose(fp);
+}
+
+uint16_t RAW_CR2::consume_upper_black_border(int number_of_lines_to_consume, int start) {
+    int pow2 = 8192;
+    uint16_t last_values[2] = { pow2,pow2 };
+    vector<uint16_t> result;
+    vector<uint16_t> Black_levels;
+    vector<int> first_cropped, second_cropped;
+
+    //Initialization : Decode first two values
+    for (int i = 0+start; i < 2+start; i++) {
+        uint16_t newval = last_values[i % 2] + this->diff_values[i];
+        result.push_back(newval);
+        last_values[i % 2] = newval;
+    }
+    //Measure Black value
+    // * 18
+    for (int i = 2+start; i < start + this->sensor_width * number_of_lines_to_consume; i++) {
+        uint16_t newval = last_values[i % 2] + this->diff_values[i];
+        result.push_back(newval);
+        Black_levels.push_back(newval);
+        last_values[i % 2] = newval;
+    }
+
+    long long Black_level_long = std::accumulate(Black_levels.begin(), Black_levels.end(), 0.0) / Black_levels.size();
+    this->black_level= (uint16_t)Black_level_long;
+    return (uint16_t)Black_level_long;
+}
+
+
+void RAW_CR2::decode_diff_image_line(int line_num) {
+    int start_idx = line_num * sensor_width;
+    uint16_t last_values[2] = { 0,0 };
+
+    if (line_num == 0) {
+        last_values[0] = 8192;
+        last_values[1] = 8192;
+    }
+    else {
+        last_values[0] = bayer_values[(line_num - 1) * sensor_width];
+        last_values[1] = bayer_values[(line_num - 1) * sensor_width + 1];
+    }
+    
+
+    uint16_t newval=0;
+    int diff_list_idx=0;
+
+    for (int i = 0; i < sensor_width; i++) {
+        int odd = i % 2;                                    //Odd index ?
+
+        int diff_list_idx = i + start_idx;
+
+        newval = last_values[odd] + this->diff_values[diff_list_idx];
+
+        bayer_values[line_num * this->sensor_width + i] = newval;
+
+        last_values[odd] = newval;
+
+    }
+}
+
+
+void RAW_CR2::raw_values2rgb() {
+    //Upper part
+    for (int line = 0; line < this->sensor_height / 2; line++) 
+    {
+        for (int col = 0; col < this->sensor_width / 4; col++) 
+        {
+            this->r[line * this->sensor_width / 2 + col] = (correct_value(this->bayer_values[line*this->sensor_width + 2*col],this->color_balances[0])); 
+            this->g1[line * this->sensor_width / 2 + col] = (correct_value(this->bayer_values[line * this->sensor_width + 2 * col+1], this->color_balances[1]));
+            this->g2[line * this->sensor_width / 2 + col] = (correct_value(this->bayer_values[line * this->sensor_width + 2 * col + this->sensor_width/2], this->color_balances[2]));
+            this->b[line * this->sensor_width / 2 + col] = (correct_value(this->bayer_values[line * this->sensor_width + 2 * col + this->sensor_width / 2 + 1], this->color_balances[3]));
+
+        }
+    }
+    
+    //Lower part
+    for (int line = this->sensor_height / 2; line < this->sensor_height-1; line++)
+    {
+        for (int col = 0; col < this->sensor_width / 4; col++)
+        {
+            this->r[(line-sensor_height/2) * this->sensor_width / 2 + col + this->sensor_width/4] = (correct_value(this->bayer_values[line * this->sensor_width + 2 * col], this->color_balances[0]));
+            this->g1[(line - sensor_height / 2) * this->sensor_width / 2 + col + this->sensor_width / 4] = (correct_value(this->bayer_values[line * this->sensor_width + 2 * col + 1], this->color_balances[1]));
+            this->g2[(line - sensor_height / 2) * this->sensor_width / 2 + col + this->sensor_width / 4] = (correct_value(this->bayer_values[line * this->sensor_width + 2 * col + this->sensor_width / 2], this->color_balances[2]));
+            this->b[(line - sensor_height / 2) * this->sensor_width / 2 + col + this->sensor_width / 4] = (correct_value(this->bayer_values[line * this->sensor_width + 2 * col + this->sensor_width / 2 + 1], this->color_balances[3]));
+        }
+    }
+}
+
+void RAW_CR2::decode_slice(int start, int end, int top_black_border, int left_black_border) {
+    for (int i = 0; i < this->sensor_height; i++) {
+        decode_diff_image_line(i);
+    }
+    raw_values2rgb();
+}
+
+unsigned char RAW_CR2::correct_value(uint16_t in, uint16_t col_bal) {
+    uint16_t black_clamped = (in - this->black_level) < 0 ? 0 : in - this->black_level;
+    return unsigned char((float(black_clamped) * float(col_bal) / 1024.)/30.);
+}
+
+vector<unsigned char> RAW_CR2::correct_rgb_and_get_sdr_array() {
+    /*vector<int> maxes;
+    maxes.push_back(*max_element(r.begin(), r.end()));
+    maxes.push_back(*max_element(g1.begin(), g1.end()));
+    maxes.push_back(*max_element(g2.begin(), g2.end()));
+    maxes.push_back(*max_element(b.begin(), b.end()));
+    int max = *max_element(maxes.begin(), maxes.end());*/
+
+    const auto width = this->sensor_width / 2;
+    const auto height = this->sensor_height / 2;
+    const auto bytesPerPixel = 3;
+
+    vector<unsigned char> image = vector<unsigned char>(width * height * bytesPerPixel);
+    // create a nice color transition (replace with your code)
+    for (auto y = 0; y < height; y++)
+        for (auto x = 0; x < width; x++)
+        {
+            // memory location of current pixel
+            auto offset = (y * width + x);
+            image[offset * bytesPerPixel] = r[offset];        // float(max) * 255*40;
+            image[offset * bytesPerPixel + 1] = g1[offset]; // float(max) * 255*40;
+            image[offset * bytesPerPixel + 2] = b[offset];    // float(max) * 255*40;
+        }
+    return image;
+}
+
+vector<unsigned char> RAW_CR2::get_sdr_array() {
+    vector<int> maxes;
+    maxes.push_back(*max_element(r.begin(), r.end()));
+    maxes.push_back(*max_element(g1.begin(), g1.end()));
+    maxes.push_back(*max_element(g2.begin(), g2.end()));
+    maxes.push_back(*max_element(b.begin(), b.end()));
+    int max = *max_element(maxes.begin(), maxes.end());
+
+    const auto width = this->sensor_width / 2;
+    const auto height = this->sensor_height / 2;
+    const auto bytesPerPixel = 3;
+
+    vector<unsigned char> image = vector<unsigned char>(width * height * bytesPerPixel);
+    // create a nice color transition (replace with your code)
+    for (auto y = 0; y < height; y++)
+        for (auto x = 0; x < width; x++)
+        {
+            // memory location of current pixel
+            auto offset = (y * width + x);
+            image[offset * bytesPerPixel] = float(this->r[offset] < 0 ? 0 : this->r[offset]) / 30.;        // float(max) * 255*40;
+            image[offset * bytesPerPixel + 1] = float(this->g1[offset] < 0 ? 0 : this->g1[offset]) / 30.; // float(max) * 255*40;
+            image[offset * bytesPerPixel + 2] = float(this->b[offset] < 0 ? 0 : this->b[offset]) / 30.;    // float(max) * 255*40;
+        }
+    return image;
 }

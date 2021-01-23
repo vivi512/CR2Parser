@@ -11,12 +11,13 @@
 #include <unordered_map>
 #include <algorithm>
 
+#include "CR2_pprint.h"
 #include "RAW_CR2.h"
 
 
 using namespace std;
 
-vector<uint16_t> decodeSlice(vector<int> slice_diff,RAW_CR2* raw) {
+vector<uint16_t> decodeSlice(vector<uint16_t> slice_diff,RAW_CR2* raw) {
     int pow2 = 8192;
     uint16_t last_values[2] = { pow2,pow2 };
     vector<uint16_t> result;
@@ -50,8 +51,8 @@ vector<uint16_t> decodeSlice(vector<int> slice_diff,RAW_CR2* raw) {
         else {
             //Actually append the data
             newval = last_values[i % 2] + slice_diff[i];
-            clamped_nv = newval - Black_level < 0 ? 0 : newval - Black_level;
         }
+        clamped_nv = newval - Black_level < 0 ? 0 : newval - Black_level;
         int rightside = (i / (raw->sensor_width / 2));
         rightside = rightside % 2;
         int odd = i % 2;
@@ -59,7 +60,7 @@ vector<uint16_t> decodeSlice(vector<int> slice_diff,RAW_CR2* raw) {
         switch (rightside * 2 + odd) {
         case 0:raw->r.push_back(float(clamped_nv) * float(raw->color_balances[0])/1024.); break;
             case 1:break;//raw->g.push_back(newval); break;
-            case 2:raw->g.push_back(clamped_nv *float(raw->color_balances[2])/1024.); break;//cout << raw->color_balances[2] << " "<< float(raw->color_balances[2]) / 1024. << endl; break;
+            case 2:raw->g2.push_back(clamped_nv *float(raw->color_balances[2])/1024.); break;//cout << raw->color_balances[2] << " "<< float(raw->color_balances[2]) / 1024. << endl; break;
             case 3:raw->b.push_back(clamped_nv *float(raw->color_balances[3])/1024.); break;
             default: cout << "oh shit : " << rightside * 2 + odd << endl;
         }
@@ -82,46 +83,54 @@ void myOutput(unsigned char byte)
 
 int main()
 {
-    string myPhotoPath = "V:\\Temp\\Photos Neige\\J0_J1\\_MG_9532.CR2";
+    string myPhotoPath = "V:\\Temp\\Photos Neige\\J0_J1\\_MG_9556.CR2";
 
     cout << "Headers start" << endl;
     RAW_CR2* raw = new RAW_CR2(myPhotoPath);
     raw->fill_headers_and_diff_values();
     cout << "Headers end" << endl;
-    
-    vector<int> vec_diffvalues = raw->vec_diffvalues;
+
     raw->pprint();
 
+    //pprint_sos(raw->sos_header);
+   // pprint_sof3(raw->sof3_header);
+
+    raw->consume_upper_black_border(18);
+    cout << "Black Level : " << raw->black_level << endl;
+    raw->decode_slice(0, raw->diff_values.size() / 2, 19, 72);
+    //raw->decode_slice(raw->diff_values.size()/2, raw->diff_values.size(), 19, 0);
+    
+    /*
+    vector<uint16_t> vec_diffvalues = raw->diff_values;
     //vector<int>::const_iterator first = vec_diffvalues.begin() + vec_diffvalues.size() / 2;
     //vector<int>::const_iterator last = vec_diffvalues.end();
-    vector<int>::const_iterator first = vec_diffvalues.begin();
-    vector<int>::const_iterator last = vec_diffvalues.begin() + vec_diffvalues.size() / 2;
-    vector<int> newVec(first, last);
+    vector<uint16_t>::const_iterator first = vec_diffvalues.begin();
+    vector<uint16_t>::const_iterator last = vec_diffvalues.begin() + vec_diffvalues.size() / 2;
+    vector<uint16_t> newVec(first, last);
 
     vector<uint16_t> s1_dec = decodeSlice(newVec,raw);
+    */
 
-    /*cout << "First few pixels values : " << endl;
-    for (int i = 0; i < 20; i++) {
-        cout << vec_diffvalues[i] << endl;
-    }*/
+    
 
-    const auto width = raw->sensor_width/4;
-    const auto height = raw->sensor_height/2;
-    // RGB: one byte each for red, green, blue
-    const auto bytesPerPixel = 3;
-
-    int min_pixels, max_pixels = 0;
-    min_pixels = *min_element(s1_dec.begin(), s1_dec.end());
-    max_pixels = *max_element(s1_dec.begin(), s1_dec.end());
+    //int min_pixels, max_pixels = 0;
+    //min_pixels = *min_element(s1_dec.begin(), s1_dec.end());
+    //max_pixels = *max_element(s1_dec.begin(), s1_dec.end());
     //int maxAbs = abs(max_pixels) < abs(min_pixels) ? abs(min_pixels) : abs(max_pixels);
 
     //(unsigned char) ((diffValueList[i] - minInt)*(255/float(maxInt - minInt)));
     //return (unsigned char)((dVal + maxAbs) * (128 / float(maxAbs)));
 
+    const auto width = raw->sensor_width / 2;
+    const auto height = raw->sensor_height / 2;
+    const auto bytesPerPixel = 3;
+
     // allocate memory
     auto image = new unsigned char[width * height * bytesPerPixel];
+    vector<unsigned char> arr = raw->correct_rgb_and_get_sdr_array();
+    std::copy(arr.begin(), arr.end(), image);
     // create a nice color transition (replace with your code)
-    for (auto y = 0; y < height; y++)
+    /*for (auto y = 0; y < height; y++)
         for (auto x = 0; x < width; x++)
         {
             // memory location of current pixel
@@ -131,14 +140,14 @@ int main()
             //int pixelvalue = (s1_dec[offset] + abs(min_pixels))*255/( abs(min_pixels) + abs(max_pixels) );
 
             // red and green fade from 0 to 255, blue is always 127
-            image[offset* bytesPerPixel]     = ( raw->r[offset] + abs(min_pixels)) * 255 / (abs(min_pixels) + abs(max_pixels));        //Red
-            image[offset* bytesPerPixel + 1] = ( raw->g[offset] + abs(min_pixels)) * 255 / (abs(min_pixels) + abs(max_pixels));   //Green
-            image[offset* bytesPerPixel + 2] = ( raw->b[offset] + abs(min_pixels)) * 255 / (abs(min_pixels) + abs(max_pixels));                //Blue
+            image[offset * bytesPerPixel] = (raw->r[offset]) / 255;  //* 255 / (abs(min_pixels) + abs(max_pixels));        //Red
+            image[offset * bytesPerPixel + 1] = (raw->g2[offset]) / 255; // * 255 / (abs(min_pixels) + abs(max_pixels));   //Green
+            image[offset * bytesPerPixel + 2] = (raw->b[offset]) / 255; // * 255 / (abs(min_pixels) + abs(max_pixels));                //Blue
             
             //unsigned char normalized_pixel = (unsigned char)((pixels[divoffset]+ abs(min_pixels)) * (255 / float(abs(min_pixels) + abs(max_pixels))));
             //image[offset] = pixelvalue > 255 ? 255 : pixelvalue;
             
-        }
+        }*/
     
     const bool isRGB = true;  // true = RGB image, else false = grayscale
     const auto quality = 95;    // compression quality: 0 = worst, 100 = best, 80 to 90 are most often used
