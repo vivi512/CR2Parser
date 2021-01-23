@@ -7,6 +7,5 @@ And almost all of the references for this comes from lclevy's great cr2 post : h
 To use, change the "myPhotoPath" line 84 in main.
 
 TODO : 
- - Decode slices correctly
- - White Balance
- - Contrast
+ - Contrast (Gamma correction)
+ - Good debayering (AMaZE)
