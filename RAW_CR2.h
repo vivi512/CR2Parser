@@ -52,9 +52,13 @@ public:
 
 	vector<float> r, g1, g2, b;	//Allocated in fill_headers_and_diff_values, filled in decode_slice()
 	void decode_slice(int start, int end, int top_black_border, int left_black_border);
-	//void decode_bayer_line(int line_num, int left_black_border);
+
 	vector<uint16_t> bayer_values;	//Allocated in fill_headers_and_diff_values, filled in decode_slice()
-	void decode_diff_image_line(int line_num);
+	void decode_diff_image_line(int line_num, int col_start);
+
+	void preprocess_linestarts();
+	void mt_decode_lines(int start, int end);
+	void mt_decode_diff_image_lines();
 
 	void raw_values2rgb();
 

@@ -56,6 +56,7 @@ uint16_t ByteStream::readBits(int N)
         {
             if (bytes[byteLoc + 1] != 0x00)
             {
+                /*
                 printf("Byteloc  = %d\n", byteLoc);
                 printf("Bitstart = %d\n", bitStart);
                 printBits(uint16_t(bitBuffer >> 16)); printf(" ");
@@ -72,7 +73,7 @@ uint16_t ByteStream::readBits(int N)
                 {
                     printf("We encountered an unexpected marker! byteLoc = %d\n", byteLoc + 1);
                     printf("Marker : %x%x \n", bytes[byteLoc], bytes[byteLoc + 1]);
-                }
+                }*/
             }
             else
                 byteLoc++;

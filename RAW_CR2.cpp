@@ -2,6 +2,7 @@
 #include "RAW_CR2.h"
 #include <numeric>
 #include <algorithm>
+#include <thread>
 
 
 //Constructor : sets a file associated with the .CR2
@@ -320,6 +321,9 @@ void RAW_CR2::fill_headers_and_diff_values() {
     fclose(fp);
 }
 
+/*
+    TODO : make it better
+*/
 uint16_t RAW_CR2::consume_upper_black_border(int number_of_lines_to_consume, int start) {
     int pow2 = 8192;
     uint16_t last_values[2] = { pow2,pow2 };
@@ -348,24 +352,28 @@ uint16_t RAW_CR2::consume_upper_black_border(int number_of_lines_to_consume, int
 }
 
 
-void RAW_CR2::decode_diff_image_line(int line_num) {
+void RAW_CR2::decode_diff_image_line(int line_num, int col_start=0) {
     int start_idx = line_num * sensor_width;
     uint16_t last_values[2] = { 0,0 };
 
-    if (line_num == 0) {
-        last_values[0] = 8192;
-        last_values[1] = 8192;
+    if (col_start == 0) {
+        if (line_num == 0) {
+            last_values[0] = 8192;
+            last_values[1] = 8192;
+        }
+        else {
+            last_values[0] = bayer_values[(line_num - 1) * sensor_width];
+            last_values[1] = bayer_values[(line_num - 1) * sensor_width + 1];
+        }
     }
     else {
-        last_values[0] = bayer_values[(line_num - 1) * sensor_width];
-        last_values[1] = bayer_values[(line_num - 1) * sensor_width + 1];
+        last_values[0] = bayer_values[(line_num) * sensor_width];
+        last_values[1] = bayer_values[(line_num) * sensor_width + 1];
     }
-    
-
     uint16_t newval=0;
     int diff_list_idx=0;
 
-    for (int i = 0; i < sensor_width; i++) {
+    for (int i = col_start; i < sensor_width; i++) {
         int odd = i % 2;                                    //Odd index ?
 
         int diff_list_idx = i + start_idx;
@@ -411,8 +419,54 @@ void RAW_CR2::decode_slice(int start, int end, int top_black_border, int left_bl
     for (int i = 0; i < this->sensor_height; i++) {
         decode_diff_image_line(i);
     }
-    raw_values2rgb();
+    //raw_values2rgb();
 }
+
+// 2 Components, first values = 8192,8192
+void RAW_CR2::preprocess_linestarts() {
+    int start_idx = 0;
+    uint16_t last_values[2] = { 8192,8192 };
+
+
+    uint16_t newval = 0;
+    int diff_list_idx = 0;
+    for (int line = 0; line < sensor_height; line++) {
+        start_idx = line * sensor_width;
+        for (int col = 0; col < 2; col++) { // < 2 because there are 2 components
+            int odd = col % 2;
+
+            int diff_list_idx = col + start_idx;
+
+            newval = last_values[odd] + this->diff_values[diff_list_idx];
+
+            bayer_values[line * this->sensor_width + col] = newval;
+
+            last_values[odd] = newval;
+        }
+    }
+}
+
+void RAW_CR2::mt_decode_lines(int start, int end) {
+    for (int i = start; i < end; i++) {
+        this->decode_diff_image_line(i, 2);
+    }
+}
+
+void RAW_CR2::mt_decode_diff_image_lines() {
+    /*preprocess_linestarts();
+    const int processor_count = std::thread::hardware_concurrency();
+    vector<thread> threads;
+    for (int i = 0; i < processor_count; i++) {
+        //std::thread t(mt_decode_lines, i*sensor_height/processor_count, (i+1) * sensor_height / processor_count);
+        std::thread t(&RAW_CR2::mt_decode_lines, this, i * sensor_height / processor_count, (i + 1) * sensor_height / processor_count);
+        threads.push_back(t);
+    }
+    for (int i = 0; i < threads.size(); i++) {
+        threads[i].join();
+    }*/
+}
+
+
 
 unsigned char RAW_CR2::correct_value(uint16_t in, uint16_t col_bal) {
     uint16_t black_clamped = (in - this->black_level) < 0 ? 0 : in - this->black_level;

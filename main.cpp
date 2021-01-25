@@ -10,6 +10,9 @@
 #include <cmath>
 #include <unordered_map>
 #include <algorithm>
+#include <chrono>
+
+#include <thread>
 
 #include "CR2_pprint.h"
 #include "RAW_CR2.h"
@@ -81,13 +84,27 @@ void myOutput(unsigned char byte)
     myFile << byte;
 }
 
+void mt_decode_liness(RAW_CR2* raw,int start, int end) {
+    for (int i = start; i < end; i++) {
+        raw->decode_diff_image_line(i, 2);
+    }
+}
+
 int main()
 {
     string myPhotoPath = "V:\\Temp\\Photos Neige\\J0_J1\\_MG_9556.CR2";
 
     cout << "Headers start" << endl;
+    auto t1 = std::chrono::steady_clock::now();
+
     RAW_CR2* raw = new RAW_CR2(myPhotoPath);
     raw->fill_headers_and_diff_values();
+
+    auto t2 = std::chrono::steady_clock::now();
+    auto d_milli = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
+    cout <<"Time it took in ms : " << d_milli << endl;
+
+
     cout << "Headers end" << endl;
 
     raw->pprint();
@@ -97,7 +114,41 @@ int main()
 
     raw->consume_upper_black_border(18);
     cout << "Black Level : " << raw->black_level << endl;
-    raw->decode_slice(0, raw->diff_values.size() / 2, 19, 72);
+
+    
+    t1 = std::chrono::steady_clock::now();
+    for (int i = 0; i < 100; i++) {
+        raw->decode_slice(0, raw->diff_values.size() / 2, 19, 72);
+    }
+    t2 = std::chrono::steady_clock::now();
+    d_milli = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
+    cout << "Time it took in ms (Single-Threaded): " << d_milli  << " ms"<< endl;
+    
+    const int processor_count = std::thread::hardware_concurrency();
+
+    t1 = std::chrono::steady_clock::now();
+    for (int i = 0; i < 100; i++) {
+        raw->preprocess_linestarts();
+        
+        thread thread_1(mt_decode_liness, raw, 0 * raw->sensor_height / 4, (0 + 1) * raw->sensor_height / 4);
+        thread thread_2(mt_decode_liness, raw, 1 * raw->sensor_height / 4, (1 + 1) * raw->sensor_height / 4);
+        thread thread_3(mt_decode_liness, raw, 2 * raw->sensor_height / 4, (2 + 1) * raw->sensor_height / 4);
+        thread thread_4(mt_decode_liness, raw, 3 * raw->sensor_height / 4, (3 + 1) * raw->sensor_height / 4);
+
+        thread_1.join();
+        thread_2.join();
+        thread_3.join();
+        thread_4.join();
+        
+    }
+
+    t2 = std::chrono::steady_clock::now();
+    d_milli = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
+    cout << "Time it took in ms (Multi-Threaded): " << d_milli << " ms" << endl;
+    
+    raw->raw_values2rgb();
+
+
     //raw->decode_slice(raw->diff_values.size()/2, raw->diff_values.size(), 19, 0);
     
     /*
